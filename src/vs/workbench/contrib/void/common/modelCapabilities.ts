@@ -262,13 +262,13 @@ const openSourceModelOptions_assumingOAICompat = {
 		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
 	},
 	'deepseekCoderV3': {
-		supportsFIM: false,
+		supportsFIM: true,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
 		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
 	},
 	'deepseekCoderV2': {
-		supportsFIM: false,
+		supportsFIM: true,
 		supportsSystemMessage: false, // unstable
 		reasoningCapabilities: false,
 		contextWindow: 32_000, reservedOutputTokenSpace: 4_096,
