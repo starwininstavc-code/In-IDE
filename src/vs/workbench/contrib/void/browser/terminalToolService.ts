@@ -15,6 +15,7 @@ import { ITerminalService, ITerminalInstance, ICreateTerminalOptions } from '../
 import { MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_CHARS, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js';
 import { TerminalResolveReason } from '../common/toolsServiceTypes.js';
 import { timeout } from '../../../../base/common/async.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 
 
 
@@ -74,6 +75,7 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 	constructor(
 		@ITerminalService private readonly terminalService: ITerminalService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IEditorService private readonly _editorService: IEditorService
 	) {
 		super();
 
@@ -125,7 +127,16 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 	private async _createTerminal(props: { cwd: string | null, config: ICreateTerminalOptions['config'], hidden?: boolean }) {
 		const { cwd: override_cwd, config, hidden } = props;
 
-		const cwd: URI | string | undefined = (override_cwd ?? undefined) ?? this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		// Fix: Use the active workspace folder or fallback to the first folder
+		let cwd: URI | string | undefined = (override_cwd ?? undefined);
+		if (!cwd) {
+			const activeEditorResource = this._editorService.activeEditor?.resource;
+			if (activeEditorResource) {
+				const workspaceFolder = this.workspaceContextService.getWorkspaceFolder(activeEditorResource);
+				cwd = workspaceFolder?.uri;
+			}
+			cwd = cwd ?? this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		}
 
 		const options: ICreateTerminalOptions = {
 			cwd,

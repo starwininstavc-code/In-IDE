@@ -5,11 +5,13 @@ import { ITextModel } from '../../../../editor/common/model.js';
 import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { Range, IRange } from '../../../../editor/common/core/range.js';
-import { Disposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 import { URI } from '../../../../base/common/uri.js';
+import { IBrowserPreviewService } from './browserPreviewService.js';
+import { ITerminalToolService } from './terminalToolService.js';
 
 
 // make sure snippet logic works
@@ -34,28 +36,49 @@ export const IContextGatheringService = createDecorator<IContextGatheringService
 class ContextGatheringService extends Disposable implements IContextGatheringService {
 	_serviceBrand: undefined;
 	private readonly _NUM_LINES = 3;
-	private readonly _MAX_SNIPPET_LINES = 7;  // Reasonable size for context
+	private readonly _MAX_SNIPPET_LINES = 20;  // Reasonable size for context
 	// Cache holds the most recent list of snippets.
 	private _cache: string[] = [];
 	private _snippetIntervals: IVisitedInterval[] = [];
+	private _terminalContextCache: Map<string, string> = new Map();
 
 	constructor(
 		@ILanguageFeaturesService private readonly _langFeaturesService: ILanguageFeaturesService,
 		@IModelService private readonly _modelService: IModelService,
-		@ICodeEditorService private readonly _codeEditorService: ICodeEditorService
+		@ICodeEditorService private readonly _codeEditorService: ICodeEditorService,
+		@IBrowserPreviewService private readonly _browserPreviewService: IBrowserPreviewService,
+		@ITerminalToolService private readonly _terminalToolService: ITerminalToolService
 	) {
 		super();
 		this._modelService.getModels().forEach(model => this._subscribeToModel(model));
 		this._register(this._modelService.onModelAdded(model => this._subscribeToModel(model)));
+
+		// Poll terminal content every 2 seconds
+		const interval = setInterval(() => this._updateTerminalContext(), 2000);
+		this._register(toDisposable(() => clearInterval(interval)));
+	}
+
+	private async _updateTerminalContext() {
+		const terminalIds = this._terminalToolService.listPersistentTerminalIds();
+		for (const id of terminalIds) {
+			try {
+				const content = await this._terminalToolService.readTerminal(id);
+				if (content && content.trim().length > 0) {
+					this._terminalContextCache.set(id, content);
+				}
+			} catch (e) {
+				// Ignore errors
+			}
+		}
 	}
 
 	private _subscribeToModel(model: ITextModel): void {
-		console.log('Subscribing to model:', model.uri.toString());
+		// console.log('Subscribing to model:', model.uri.toString());
 		this._register(model.onDidChangeContent(() => {
 			const editor = this._codeEditorService.getFocusedCodeEditor();
 			if (editor && editor.getModel() === model) {
 				const pos = editor.getPosition();
-				console.log('updateCache called at position:', pos);
+				// console.log('updateCache called at position:', pos);
 				if (pos) {
 					this.updateCache(model, pos);
 				}
@@ -72,11 +95,23 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 
 		// Convert to array and filter overlapping snippets
 		this._cache = Array.from(snippets);
-		console.log('Cache updated:', this._cache);
+		// console.log('Cache updated:', this._cache);
 	}
 
 	public getCachedSnippets(): string[] {
-		return this._cache;
+		const snippets = [...this._cache];
+
+		const browserDOM = this._browserPreviewService.getLastSelectedDOM();
+		if (browserDOM) {
+			snippets.push(`/* Selected Browser DOM Element: */\n${browserDOM}`);
+		}
+
+		// Add terminal outputs from cache
+		this._terminalContextCache.forEach((content, id) => {
+			snippets.push(`/* Terminal Output (${id}): */\n${content}`);
+		});
+
+		return snippets;
 	}
 
 	// Basic snippet extraction.
